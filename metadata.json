@@ -1,0 +1,7 @@
+{
+  "name": "StudioPay",
+  "description": "An elegant, modern web application for photographers in Egypt to manage photoshoot bookings, client data, payments, and generate creative photoshoot ideas with AI.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

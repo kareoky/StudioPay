@@ -1,0 +1,135 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>مولد StudioPay</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: #0B132B; 
+            color: white; 
+            margin: 0; 
+            height: 100vh; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            padding: 20px;
+        }
+        .container {
+            background-color: #1C2541;
+            padding: 30px;
+            border-radius: 20px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            text-align: center;
+            border: 1px solid #3A506B;
+        }
+        h2 { margin-top: 0; color: #F7C873; margin-bottom: 20px; }
+        label { display: block; margin-bottom: 10px; font-size: 1.1rem; color: #ccc; }
+        input { 
+            width: 100%; 
+            padding: 15px; 
+            font-size: 1.5rem; 
+            text-align: center; 
+            border-radius: 10px; 
+            border: 2px solid #3A506B; 
+            background: #0B132B; 
+            color: #fff; 
+            outline: none;
+            margin-bottom: 20px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        input:focus { border-color: #F7C873; }
+        button { 
+            width: 100%; 
+            padding: 15px; 
+            font-size: 1.2rem; 
+            font-weight: bold; 
+            border: none; 
+            border-radius: 10px; 
+            cursor: pointer; 
+            transition: transform 0.1s;
+            margin-bottom: 10px;
+        }
+        .btn-gen { background-color: #F7C873; color: #0B132B; }
+        .btn-gen:active { transform: scale(0.98); background-color: #dcb36b; }
+        
+        .result-box {
+            margin-top: 20px;
+            padding: 20px;
+            background: #0B132B;
+            border-radius: 10px;
+            border: 1px dashed #F7C873;
+            opacity: 0.3;
+            transition: opacity 0.3s;
+        }
+        .result-label { font-size: 0.9rem; color: #888; margin-bottom: 5px; }
+        .result-code { font-size: 3rem; font-weight: bold; color: #F7C873; letter-spacing: 5px; line-height: 1; }
+        
+        .error { color: #ff6b6b; font-size: 0.9rem; margin-top: 10px; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <svg xmlns="http://www.w3.org/2000/svg" width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="#F7C873" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 10px;">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+    </svg>
+    <h2>مولد كود التفعيل</h2>
+    
+    <label>أدخل رقم جهاز العميل (Device ID)</label>
+    <input type="text" id="deviceId" placeholder="ex: A7B8-9C4D" autocapitalize="characters">
+    
+    <button class="btn-gen" type="button" onclick="calculateCode()">توليد الكود</button>
+    
+    <p id="errorMsg" class="error">الرجاء إدخال رقم الجهاز</p>
+
+    <div class="result-box" id="resultBox">
+        <div class="result-label">كود التفعيل هو:</div>
+        <div class="result-code" id="finalCode">----</div>
+    </div>
+</div>
+
+<script>
+    function calculateCode() {
+        var inputEl = document.getElementById('deviceId');
+        var errorMsg = document.getElementById('errorMsg');
+        var resultBox = document.getElementById('resultBox');
+        var finalCode = document.getElementById('finalCode');
+        
+        var input = inputEl.value.trim();
+
+        if (!input) {
+            errorMsg.style.display = 'block';
+            return;
+        }
+        errorMsg.style.display = 'none';
+
+        // Updated Key for StudioPay
+        var SECRET_KEY = "StudioPay_Secure_Key_2024";
+        var combined = input + SECRET_KEY;
+        
+        var hash = 0;
+        for (var i = 0; i < combined.length; i++) {
+            var char = combined.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; 
+        }
+        
+        var pin = Math.abs(hash).toString().slice(-4).padStart(4, '0');
+        
+        finalCode.innerText = pin;
+        resultBox.style.opacity = '1';
+    }
+</script>
+
+</body>
+</html>
