@@ -1,7 +1,6 @@
 
 import React, { createContext, useState, useEffect, useCallback } from 'react';
-import arTranslations from './ar.json';
-import enTranslations from './en.json';
+import { arTranslations, enTranslations } from './i18nData';
 
 type Language = 'en' | 'ar';
 type Direction = 'ltr' | 'rtl';
@@ -58,3 +57,4 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         </LanguageContext.Provider>
     );
 };
+    

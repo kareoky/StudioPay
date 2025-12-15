@@ -29,7 +29,6 @@ const Settings: React.FC<SettingsProps> = ({ orders, onUnlock, deviceId, notifyL
             clients: localStorage.getItem('clients'),
             orders: localStorage.getItem('orders'),
             userName: localStorage.getItem('userName'),
-            googleMapsApiKey: localStorage.getItem('googleMapsApiKey'), // Optional: keep for convenience
             version: '1.2'
         };
 
@@ -64,7 +63,6 @@ const Settings: React.FC<SettingsProps> = ({ orders, onUnlock, deviceId, notifyL
                     if (importedData.clients) localStorage.setItem('clients', importedData.clients);
                     if (importedData.orders) localStorage.setItem('orders', importedData.orders);
                     if (importedData.userName) localStorage.setItem('userName', importedData.userName);
-                    if (importedData.googleMapsApiKey) localStorage.setItem('googleMapsApiKey', importedData.googleMapsApiKey);
 
                     // Note: We intentionally do NOT import 'activationDate' or 'isActivated'.
                     
