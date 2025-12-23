@@ -48,9 +48,23 @@ const Dashboard: React.FC<DashboardProps> = ({ userName, orders, clients, setVie
 
     const upcomingBookings = orders.filter(order => new Date(order.dateTime) > new Date() && order.status === 'confirmed');
 
+    // Updated Revenue Logic: 
+    // 1. Include deposits for all non-cancelled orders in this month.
+    // 2. Include full price for completed orders in this month.
     const totalRevenueThisMonth = orders
-        .filter(order => new Date(order.dateTime).getMonth() === new Date().getMonth() && new Date(order.dateTime).getFullYear() === new Date().getFullYear() && order.status === 'completed')
-        .reduce((sum, order) => sum + order.priceAmount, 0);
+        .filter(order => 
+            new Date(order.dateTime).getMonth() === new Date().getMonth() && 
+            new Date(order.dateTime).getFullYear() === new Date().getFullYear() && 
+            order.status !== 'cancelled'
+        )
+        .reduce((sum, order) => {
+            // If completed, we take the full price. 
+            // If not completed (pending/confirmed), we only take the deposit.
+            const earnedFromThisOrder = order.status === 'completed' 
+                ? order.priceAmount 
+                : order.depositPaid;
+            return sum + earnedFromThisOrder;
+        }, 0);
         
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat(language === 'ar' ? 'ar-EG' : 'en-US', { style: 'currency', currency: 'EGP', minimumFractionDigits: 0 }).format(amount);

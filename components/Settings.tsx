@@ -97,10 +97,17 @@ const Settings: React.FC<SettingsProps> = ({ orders, onUnlock, deviceId, notifyL
 
     const getMonthlyRevenue = () => {
         const revenueMap: Record<string, number> = {};
-        orders.filter(o => o.status === 'completed').forEach(order => {
+        // Filter out cancelled orders.
+        orders.filter(o => o.status !== 'cancelled').forEach(order => {
             const date = new Date(order.dateTime);
             const key = `${date.getFullYear()}-${date.getMonth()}`;
-            revenueMap[key] = (revenueMap[key] || 0) + order.priceAmount;
+            
+            // Logic: Count full price if completed, otherwise only the deposit.
+            const earnedAmount = order.status === 'completed' 
+                ? order.priceAmount 
+                : order.depositPaid;
+
+            revenueMap[key] = (revenueMap[key] || 0) + earnedAmount;
         });
 
         return Object.entries(revenueMap).map(([key, amount]) => {

@@ -12,228 +12,248 @@ interface MapPickerModalProps {
 
 declare global {
     interface Window {
-        L: any; // Leaflet Global
+        google: any;
+        initGoogleMaps: () => void;
     }
 }
+
+// The API Key provided by the user
+const GOOGLE_MAPS_API_KEY = "AIzaSyCtOGcH3-cHuyQxG_FYx4Y1LYiuHZGYrKo";
 
 const MapPickerModal: React.FC<MapPickerModalProps> = ({ isOpen, onClose, onLocationSelect, initialLocation }) => {
     const { t, language } = useLanguage();
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
     
-    const [map, setMap] = useState<any>(null);
-    const [marker, setMarker] = useState<any>(null);
+    // Google Maps Instances
+    const mapRef = useRef<any>(null);
+    const markerRef = useRef<any>(null);
+    const autocompleteRef = useRef<any>(null);
+    const geocoderRef = useRef<any>(null);
+
     const [selectedLocation, setSelectedLocation] = useState(initialLocation);
     const [isLoadingLocation, setIsLoadingLocation] = useState(false);
-    const [isSearching, setIsSearching] = useState(false);
+    const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap');
+    const [hasAutoLocated, setHasAutoLocated] = useState(false);
 
-    // Search & Autocomplete State
-    const [searchQuery, setSearchQuery] = useState('');
-    const [suggestions, setSuggestions] = useState<any[]>([]);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-
-    // Initialize Map
+    // 1. Load Google Maps Script dynamically if not present
     useEffect(() => {
         if (!isOpen) return;
-        
-        // Wait for DOM to be ready
-        const timer = setTimeout(() => {
-            if (mapContainerRef.current && !map && window.L) {
-                initMap();
-            }
-        }, 100);
 
-        return () => {
-            clearTimeout(timer);
-            if (map) {
-                map.remove();
-                setMap(null);
-                setMarker(null);
-                setSuggestions([]);
-                setSearchQuery('');
+        const loadScript = () => {
+            if (window.google && window.google.maps) {
+                initMap();
+                return;
+            }
+
+            if (!document.getElementById('google-maps-script')) {
+                const script = document.createElement('script');
+                // Added region=EG to bias the map application towards Egypt
+                script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&language=${language === 'ar' ? 'ar' : 'en'}&region=EG`;
+                script.id = 'google-maps-script';
+                script.async = true;
+                script.defer = true;
+                script.onload = () => initMap();
+                document.head.appendChild(script);
+            } else {
+                // If script exists but maybe not fully loaded, wait a bit
+                const checkGoogle = setInterval(() => {
+                    if (window.google && window.google.maps) {
+                        clearInterval(checkGoogle);
+                        initMap();
+                    }
+                }, 100);
             }
         };
-    }, [isOpen]);
 
-    // Debounced Search for Autocomplete
-    useEffect(() => {
-        const delayDebounceFn = setTimeout(async () => {
-            if (searchQuery.trim().length > 2) {
-                try {
-                    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&addressdetails=1&limit=5&accept-language=${language}`);
-                    const data = await response.json();
-                    setSuggestions(data || []);
-                    setShowSuggestions(true);
-                } catch (error) {
-                    console.error("Autocomplete error:", error);
-                }
-            } else {
-                setSuggestions([]);
-                setShowSuggestions(false);
-            }
-        }, 800); // 800ms delay to avoid too many requests
+        loadScript();
 
-        return () => clearTimeout(delayDebounceFn);
-    }, [searchQuery, language]);
+        return () => {
+            // Cleanup not strictly necessary for Google Maps single instance, 
+            // but good to clear refs if unmounting
+        };
+    }, [isOpen, language]);
 
-
+    // 2. Initialize Map
     const initMap = () => {
-        if (!window.L || !mapContainerRef.current) return;
+        if (!mapContainerRef.current || !window.google) return;
 
-        const defaultLocation = { lat: 30.0444, lng: 31.2357 }; // Cairo
-        const startLocation = (initialLocation.lat && initialLocation.lng && (initialLocation.lat !== 0)) 
-            ? { lat: initialLocation.lat, lng: initialLocation.lng } 
-            : defaultLocation;
-
-        const newMap = window.L.map(mapContainerRef.current).setView([startLocation.lat, startLocation.lng], 15);
-
-        // Add OpenStreetMap Tile Layer (Free)
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(newMap);
-
-        // Custom Icon
-        const customIcon = window.L.icon({
-            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
-            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-            iconSize: [25, 41],
-            iconAnchor: [12, 41],
-            popupAnchor: [1, -34],
-            shadowSize: [41, 41]
-        });
-
-        const newMarker = window.L.marker([startLocation.lat, startLocation.lng], {
-            icon: customIcon,
-            draggable: true
-        }).addTo(newMap);
-
-        // Click to move marker
-        newMap.on('click', (e: any) => {
-            const { lat, lng } = e.latlng;
-            newMarker.setLatLng([lat, lng]);
-            handleLocationUpdate(lat, lng);
-        });
-
-        // Drag end listener
-        newMarker.on('dragend', (e: any) => {
-            const { lat, lng } = newMarker.getLatLng();
-            handleLocationUpdate(lat, lng);
-        });
-
-        setMap(newMap);
-        setMarker(newMarker);
+        // Default: Cairo
+        const defaultLocation = { lat: 30.0444, lng: 31.2357 };
         
-        // If initial location was valid, reverse geocode it to get text if missing
-        if (!initialLocation.addressText && startLocation.lat !== 0) {
-            handleLocationUpdate(startLocation.lat, startLocation.lng);
+        // Determine start location
+        const hasRealLocation = initialLocation.lat && initialLocation.lng && (initialLocation.lat !== 0);
+        const startPos = hasRealLocation ? { lat: initialLocation.lat, lng: initialLocation.lng } : defaultLocation;
+
+        // Create Map
+        if (!mapRef.current) {
+            mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
+                center: startPos,
+                zoom: 15,
+                disableDefaultUI: true, // We build our own UI
+                mapTypeId: mapType,
+                styles: [
+                     // Dark theme for map (Optional, matches app theme)
+                    { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
+                    { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
+                    { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
+                    { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
+                    { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
+                    { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#263c3f" }] },
+                    { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#6b9a76" }] },
+                    { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
+                    { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
+                    { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
+                    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#746855" }] },
+                    { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#1f2835" }] },
+                    { featureType: "road.highway", elementType: "labels.text.fill", stylers: [{ color: "#f3d19c" }] },
+                    { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
+                    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
+                    { featureType: "water", elementType: "labels.text.stroke", stylers: [{ color: "#17263c" }] }
+                ]
+            });
+        } else {
+            // If map exists (re-opening modal), just reset center
+            mapRef.current.setCenter(startPos);
         }
-    };
 
-    // Reverse Geocoding using Nominatim (Free)
-    const handleLocationUpdate = async (lat: number, lng: number) => {
-        // Update state immediately with coords
-        setSelectedLocation(prev => ({ ...prev, lat, lng, addressText: `${lat.toFixed(5)}, ${lng.toFixed(5)}` }));
+        // Create Geocoder
+        geocoderRef.current = new window.google.maps.Geocoder();
 
-        try {
-            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=${language}`);
-            const data = await response.json();
+        // Create Marker
+        if (!markerRef.current) {
+            markerRef.current = new window.google.maps.Marker({
+                position: startPos,
+                map: mapRef.current,
+                draggable: true,
+                animation: window.google.maps.Animation.DROP,
+            });
+
+            // Listen for drag end
+            markerRef.current.addListener('dragend', () => {
+                const position = markerRef.current.getPosition();
+                const lat = position.lat();
+                const lng = position.lng();
+                handleLocationUpdate(lat, lng);
+            });
             
-            if (data && data.display_name) {
-                // Simplify the address a bit
-                const addressParts = data.display_name.split(',');
-                // Take first 3-4 parts for better readability
-                const shortAddress = addressParts.slice(0, 4).join(', '); 
+             // Click map to move marker
+            mapRef.current.addListener('click', (e: any) => {
+                const lat = e.latLng.lat();
+                const lng = e.latLng.lng();
+                markerRef.current.setPosition({ lat, lng });
+                handleLocationUpdate(lat, lng);
+            });
+        } else {
+             markerRef.current.setPosition(startPos);
+        }
+
+        // Initialize Autocomplete
+        if (searchInputRef.current && !autocompleteRef.current) {
+            autocompleteRef.current = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+                componentRestrictions: { country: "eg" }, // Restrict to Egypt
+                fields: ["formatted_address", "geometry", "name"],
+            });
+            
+            // Bind autocomplete to map
+            autocompleteRef.current.bindTo("bounds", mapRef.current);
+
+            autocompleteRef.current.addListener("place_changed", () => {
+                const place = autocompleteRef.current.getPlace();
+
+                if (!place.geometry || !place.geometry.location) {
+                    alert(t('map_picker.no_results'));
+                    return;
+                }
+
+                // If the place has a geometry, then present it on a map.
+                if (place.geometry.viewport) {
+                    mapRef.current.fitBounds(place.geometry.viewport);
+                } else {
+                    mapRef.current.setCenter(place.geometry.location);
+                    mapRef.current.setZoom(17);
+                }
+
+                markerRef.current.setPosition(place.geometry.location);
                 
-                setSelectedLocation({
-                    lat,
-                    lng,
-                    addressText: shortAddress
-                });
-            }
-        } catch (error) {
-            console.error("Reverse geocoding error:", error);
+                const lat = place.geometry.location.lat();
+                const lng = place.geometry.location.lng();
+                const address = place.formatted_address || place.name;
+
+                setSelectedLocation({ lat, lng, addressText: address });
+            });
+        }
+
+        // If it's a new order (no address), trigger auto-locate
+        if (!hasRealLocation && !hasAutoLocated) {
+            handleCurrentLocation();
         }
     };
 
-    // Manual Search (Button Press or Enter)
-    const handleManualSearch = async () => {
-        if (!searchQuery.trim() || !map || !marker) return;
+    // 3. Handle Location Update (Reverse Geocoding)
+    const handleLocationUpdate = (lat: number, lng: number) => {
+        // Optimistic update
+        setSelectedLocation(prev => ({ ...prev, lat, lng }));
 
-        setIsSearching(true);
-        setShowSuggestions(false); // Hide dropdown
-
-        try {
-            const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=1&accept-language=${language}`);
-            const data = await response.json();
-
-            if (data && data.length > 0) {
-                selectLocationFromData(data[0]);
-            } else {
-                alert(t('map_picker.no_results'));
-            }
-        } catch (error) {
-            console.error("Search error:", error);
-            alert(t('map_picker.search_error'));
-        } finally {
-            setIsSearching(false);
+        if (geocoderRef.current) {
+            geocoderRef.current.geocode({ location: { lat, lng } }, (results: any, status: any) => {
+                if (status === "OK" && results[0]) {
+                    setSelectedLocation(prev => ({
+                        ...prev,
+                        lat,
+                        lng,
+                        addressText: results[0].formatted_address
+                    }));
+                     // Update search box text without triggering search
+                    if(searchInputRef.current) {
+                        searchInputRef.current.value = results[0].formatted_address;
+                    }
+                } else {
+                    setSelectedLocation(prev => ({
+                        ...prev,
+                        lat,
+                        lng,
+                        addressText: `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+                    }));
+                }
+            });
         }
     };
 
-    const handleSuggestionClick = (item: any) => {
-        selectLocationFromData(item);
-        setShowSuggestions(false);
-        setSearchQuery(item.display_name.split(',')[0]); // Just put the main name in input
-    };
-
-    const selectLocationFromData = (data: any) => {
-        if (!map || !marker) return;
-
-        const lat = parseFloat(data.lat);
-        const lng = parseFloat(data.lon);
-        const displayName = data.display_name;
-
-        map.setView([lat, lng], 16);
-        marker.setLatLng([lat, lng]);
-        
-        setSelectedLocation({
-            lat: lat,
-            lng: lng,
-            addressText: displayName.split(',').slice(0, 4).join(', ')
-        });
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter') {
-            handleManualSearch();
-        }
-    };
-
+    // 4. Handle Current Location (GPS)
     const handleCurrentLocation = () => {
         if (navigator.geolocation) {
             setIsLoadingLocation(true);
             navigator.geolocation.getCurrentPosition(
                 (position) => {
-                    const lat = position.coords.latitude;
-                    const lng = position.coords.longitude;
-                    
-                    if (map && marker) {
-                        map.setView([lat, lng], 16);
-                        marker.setLatLng([lat, lng]);
-                        handleLocationUpdate(lat, lng);
+                    const pos = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude,
+                    };
+
+                    if(mapRef.current && markerRef.current) {
+                        mapRef.current.setCenter(pos);
+                        mapRef.current.setZoom(17);
+                        markerRef.current.setPosition(pos);
+                        handleLocationUpdate(pos.lat, pos.lng);
                     }
                     setIsLoadingLocation(false);
+                    setHasAutoLocated(true);
                 },
-                (error) => {
-                    console.error("Geolocation error:", error);
+                () => {
+                    // alert(t('map_picker.geolocation_error'));
                     setIsLoadingLocation(false);
-                    alert(t('map_picker.geolocation_error'));
-                },
-                { enableHighAccuracy: true }
+                }
             );
-        } else {
-            alert("Geolocation is not supported by this browser.");
         }
     };
+
+    // 5. Toggle Map Type
+    useEffect(() => {
+        if (mapRef.current) {
+            mapRef.current.setMapTypeId(mapType);
+        }
+    }, [mapType]);
 
     const handleConfirm = () => {
         onLocationSelect(selectedLocation);
@@ -254,70 +274,56 @@ const MapPickerModal: React.FC<MapPickerModalProps> = ({ isOpen, onClose, onLoca
             <div className="relative w-full h-[90vh] sm:h-[80vh] sm:max-w-md md:max-w-xl lg:max-w-2xl bg-[#1C2541] sm:rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto transition-transform duration-300 transform translate-y-0">
                 
                 {/* Floating Search Bar */}
-                <div className="absolute top-4 left-4 right-4 z-[500] flex flex-col gap-2">
-                     <div className="relative flex-grow shadow-lg group">
+                <div className="absolute top-4 left-4 right-4 z-[500]">
+                     <div className="relative shadow-lg group">
                         <input
                             ref={searchInputRef}
                             type="text"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            onFocus={() => {
-                                if (suggestions.length > 0) setShowSuggestions(true);
-                            }}
                             placeholder={t('map_picker.search_placeholder')}
                             className="w-full h-12 pl-10 pr-4 rounded-full bg-[#0B132B] text-white border border-gray-600 focus:ring-2 focus:ring-[#F7C873] focus:border-transparent outline-none shadow-md"
                         />
-                        <button 
-                            onClick={handleManualSearch}
-                            className="absolute left-1 top-1 h-10 w-10 flex items-center justify-center text-gray-400 hover:text-white rounded-full"
-                        >
-                             {isSearching ? (
-                                <div className="animate-spin h-4 w-4 border-2 border-[#F7C873] border-t-transparent rounded-full"></div>
-                             ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                             )}
-                        </button>
-
-                        {/* Suggestions Dropdown */}
-                        {showSuggestions && suggestions.length > 0 && (
-                            <div className="absolute top-14 left-0 right-0 bg-[#0B132B] border border-gray-700 rounded-xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
-                                {suggestions.map((item, index) => (
-                                    <button
-                                        key={index}
-                                        onClick={() => handleSuggestionClick(item)}
-                                        className="w-full text-start p-3 hover:bg-[#1C2541] border-b border-gray-700 last:border-0 transition-colors flex items-center gap-3"
-                                    >
-                                        <div className="text-gray-400">
-                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            </svg>
-                                        </div>
-                                        <div className="overflow-hidden">
-                                            <p className="text-sm font-medium text-white truncate">{item.display_name.split(',')[0]}</p>
-                                            <p className="text-xs text-gray-400 truncate">{item.display_name}</p>
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
+                        <div className="absolute left-3 top-3.5 text-gray-400">
+                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
                     </div>
+                </div>
+
+                {/* Map Layer Controls */}
+                <div className="absolute top-20 left-4 z-[400] flex flex-col gap-2">
+                    <button 
+                        onClick={() => setMapType('roadmap')}
+                        className={`w-10 h-10 rounded-full shadow-lg flex items-center justify-center border transition-all ${mapType === 'roadmap' ? 'bg-[#F7C873] border-[#F7C873] text-[#0B132B]' : 'bg-[#0B132B] border-gray-600 text-white'}`}
+                        title={t('map_picker.roadmap')}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                        </svg>
+                    </button>
+                    <button 
+                        onClick={() => setMapType('satellite')}
+                        className={`w-10 h-10 rounded-full shadow-lg flex items-center justify-center border transition-all ${mapType === 'satellite' ? 'bg-[#F7C873] border-[#F7C873] text-[#0B132B]' : 'bg-[#0B132B] border-gray-600 text-white'}`}
+                        title={t('map_picker.satellite')}
+                    >
+                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </button>
                     
-                    {/* Close Button */}
-                    <div className="absolute right-0 -bottom-16">
+                     {/* Close Button Mobile Position */}
+                    <div className="sm:hidden absolute top-[-70px] right-[-10px] z-[600]">
                          <button 
                             onClick={onClose}
-                            className="h-12 w-12 rounded-full bg-[#0B132B] text-white flex items-center justify-center shadow-lg border border-gray-600 hover:bg-gray-800"
+                            className="h-10 w-10 rounded-full bg-[#0B132B] text-white flex items-center justify-center shadow-lg border border-gray-600 hover:bg-gray-800"
                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
                     </div>
                 </div>
+
 
                 {/* Map Container */}
                 <div className="flex-grow relative bg-gray-900 w-full h-full">
