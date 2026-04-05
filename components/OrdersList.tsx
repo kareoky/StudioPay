@@ -2,6 +2,7 @@
 import React from 'react';
 import { Order, Client } from '../types';
 import { useLanguage } from '../useLanguage';
+import { openGoogleMapsNavigation } from '../utils/maps';
 
 interface OrdersListProps {
   orders: Order[];
@@ -60,10 +61,9 @@ const OrdersList: React.FC<OrdersListProps> = ({ orders, clients, onEditOrder, o
         }
     };
 
-    const openInGoogleMaps = (e: React.MouseEvent, lat: number, lng: number) => {
+    const handleNavigate = (e: React.MouseEvent, lat: number, lng: number) => {
         e.stopPropagation();
-        const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-        window.open(url, '_blank');
+        openGoogleMapsNavigation(lat, lng);
     };
 
     const handleAddToCalendar = (e: React.MouseEvent, order: Order) => {
@@ -145,16 +145,18 @@ END:VCALENDAR`;
                                     </span>
                                 </td>
                                 <td className="p-4 text-center">
-                                    <button 
-                                        onClick={(e) => openInGoogleMaps(e, order.location.lat, order.location.lng)}
-                                        className="text-[#F7C873] hover:text-white transition-colors"
-                                        title={order.location.addressText}
-                                    >
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        </svg>
-                                    </button>
+                                    {order.location.lat !== 0 && (
+                                        <button 
+                                            onClick={(e) => handleNavigate(e, order.location.lat, order.location.lng)}
+                                            className="text-[#F7C873] hover:text-white transition-colors"
+                                            title={order.location.addressText}
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            </svg>
+                                        </button>
+                                    )}
                                 </td>
                                 <td className="p-4 flex items-center gap-3">
                                     <button onClick={(e) => handleAddToCalendar(e, order)} className="text-blue-400 hover:text-blue-300" title={t('common.add_to_calendar')}>

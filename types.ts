@@ -5,6 +5,11 @@ export interface Client {
   name: string;
   phone: string;
   email?: string;
+  location?: {
+    lat: number;
+    lng: number;
+    addressText: string;
+  };
 }
 
 export interface Order {

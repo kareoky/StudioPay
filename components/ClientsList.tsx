@@ -1,6 +1,7 @@
 import React from 'react';
 import { Client, Order } from '../types';
 import { useLanguage } from '../useLanguage';
+import { openGoogleMapsNavigation } from '../utils/maps';
 
 interface ClientsListProps {
   clients: Client[];
@@ -21,6 +22,10 @@ const ClientsList: React.FC<ClientsListProps> = ({ clients, orders, onEditClient
     if (window.confirm(t('clients.delete_confirm'))) {
       onDeleteClient(clientId);
     }
+  };
+
+  const handleNavigate = (lat: number, lng: number) => {
+    openGoogleMapsNavigation(lat, lng);
   };
 
   return (
@@ -62,6 +67,22 @@ const ClientsList: React.FC<ClientsListProps> = ({ clients, orders, onEditClient
                                 </svg>
                                 <span>{client.email}</span>
                             </a>
+                        )}
+                        
+                        {client.location && client.location.lat !== 0 && (
+                            <div className="flex items-center gap-2 mb-4">
+                                <button 
+                                    onClick={() => handleNavigate(client.location!.lat, client.location!.lng)}
+                                    className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                                    title={client.location.addressText}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                    <span className="truncate max-w-[150px]">{client.location.addressText || "View Location"}</span>
+                                </button>
+                            </div>
                         )}
                     </div>
                     <div className="border-t border-gray-700 pt-4 flex justify-between items-center">
