@@ -1,0 +1,20 @@
+{
+  "name": "StudioPay",
+  "short_name": "StudioPay",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B132B",
+  "theme_color": "#0B132B",
+  "icons": [
+    {
+      "src": "https://www.dropbox.com/scl/fi/zsipfindfzeonwxy4fbak/Untitled-design.png?rlkey=zjdlbedl61nwvy35zzn8b5rrq&st=5qvswo5v&raw=1",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://www.dropbox.com/scl/fi/zsipfindfzeonwxy4fbak/Untitled-design.png?rlkey=zjdlbedl61nwvy35zzn8b5rrq&st=5qvswo5v&raw=1",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
