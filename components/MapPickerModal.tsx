@@ -1,379 +1,390 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { Order } from '../types';
+import L from 'leaflet';
 import { useLanguage } from '../useLanguage';
+import { openGoogleMapsNavigation } from '../utils/maps';
 
 interface MapPickerModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onLocationSelect: (location: Order['location']) => void;
-    initialLocation: Order['location'];
+    onLocationSelect: (location: { lat: number; lng: number; addressText: string }) => void;
+    initialLocation?: { lat: number; lng: number; addressText?: string };
 }
 
-declare global {
-    interface Window {
-        google: any;
-        initGoogleMaps: () => void;
-    }
-}
-
-// The API Key provided by the user
-const GOOGLE_MAPS_API_KEY = "AIzaSyCtOGcH3-cHuyQxG_FYx4Y1LYiuHZGYrKo";
+const customMarkerIcon = L.divIcon({
+    className: 'custom-map-marker',
+    html: `
+        <div style="transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; cursor: grab;">
+            <div style="background: linear-gradient(135deg, #F7C873 0%, #E5A93C 100%); color: #0B132B; width: 42px; height: 42px; border-radius: 50%; box-shadow: 0 8px 20px rgba(0,0,0,0.6); border: 2.5px solid #FFFFFF; display: flex; align-items: center; justify-content: center;">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                </svg>
+            </div>
+            <div style="width: 0; height: 0; border-left: 9px solid transparent; border-right: 9px solid transparent; border-top: 11px solid #E5A93C; margin-top: -1px;"></div>
+        </div>
+    `,
+    iconSize: [42, 53],
+    iconAnchor: [21, 53],
+});
 
 const MapPickerModal: React.FC<MapPickerModalProps> = ({ isOpen, onClose, onLocationSelect, initialLocation }) => {
     const { t, language } = useLanguage();
+
     const mapContainerRef = useRef<HTMLDivElement>(null);
-    const searchInputRef = useRef<HTMLInputElement>(null);
-    
-    // Google Maps Instances
-    const mapRef = useRef<any>(null);
-    const markerRef = useRef<any>(null);
-    const autocompleteRef = useRef<any>(null);
-    const geocoderRef = useRef<any>(null);
+    const mapInstanceRef = useRef<L.Map | null>(null);
+    const markerInstanceRef = useRef<L.Marker | null>(null);
 
-    const [selectedLocation, setSelectedLocation] = useState(initialLocation);
-    const [isLoadingLocation, setIsLoadingLocation] = useState(false);
-    const [mapType, setMapType] = useState<'roadmap' | 'satellite'>('roadmap');
-    const [hasAutoLocated, setHasAutoLocated] = useState(false);
+    const defaultLat = 30.0444;
+    const defaultLng = 31.2357;
 
-    // 1. Load Google Maps Script dynamically if not present
+    const startLat = (initialLocation && initialLocation.lat && initialLocation.lat !== 0) ? initialLocation.lat : defaultLat;
+    const startLng = (initialLocation && initialLocation.lng && initialLocation.lng !== 0) ? initialLocation.lng : defaultLng;
+
+    const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number }>({ lat: startLat, lng: startLng });
+    const [addressText, setAddressText] = useState<string>(initialLocation?.addressText || '');
+    const [searchQuery, setSearchQuery] = useState<string>('');
+    const [isSearching, setIsSearching] = useState<boolean>(false);
+    const [isLocating, setIsLocating] = useState<boolean>(false);
+    const [isLoadingAddress, setIsLoadingAddress] = useState<boolean>(false);
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+
+    // Reset when modal opens with fresh initialLocation
+    useEffect(() => {
+        if (isOpen) {
+            const lat = (initialLocation && initialLocation.lat && initialLocation.lat !== 0) ? initialLocation.lat : defaultLat;
+            const lng = (initialLocation && initialLocation.lng && initialLocation.lng !== 0) ? initialLocation.lng : defaultLng;
+            setCurrentCoords({ lat, lng });
+            setAddressText(initialLocation?.addressText || '');
+            setSearchResults([]);
+            setSearchQuery('');
+        }
+    }, [isOpen, initialLocation]);
+
+    // Reverse geocode via Nominatim (Free, no billing, no API key needed)
+    const reverseGeocode = async (lat: number, lng: number) => {
+        setIsLoadingAddress(true);
+        try {
+            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=${language === 'ar' ? 'ar,en' : 'en'}`;
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && data.display_name) {
+                    setAddressText(data.display_name);
+                }
+            }
+        } catch (e) {
+            console.warn("Reverse geocode failed", e);
+        } finally {
+            setIsLoadingAddress(false);
+        }
+    };
+
+    // Forward Search via Nominatim
+    const handleSearch = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        if (!searchQuery.trim()) return;
+
+        setIsSearching(true);
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}&limit=5&accept-language=${language === 'ar' ? 'ar,en' : 'en'}`;
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                setSearchResults(data || []);
+            }
+        } catch (e) {
+            console.warn("Search failed", e);
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    const handleSelectSearchResult = (result: any) => {
+        const lat = parseFloat(result.lat);
+        const lng = parseFloat(result.lon);
+        
+        setCurrentCoords({ lat, lng });
+        setAddressText(result.display_name || searchQuery);
+        setSearchResults([]);
+        setSearchQuery('');
+
+        if (mapInstanceRef.current && markerInstanceRef.current) {
+            mapInstanceRef.current.setView([lat, lng], 16);
+            markerInstanceRef.current.setLatLng([lat, lng]);
+        }
+    };
+
+    // Geolocation: GPS My Location
+    const handleGetMyLocation = () => {
+        if (!navigator.geolocation) {
+            alert(language === 'ar' ? 'متصفحك لا يدعم تحديد الموقع الجغرافي' : 'Geolocation is not supported by your browser');
+            return;
+        }
+
+        setIsLocating(true);
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+                setCurrentCoords({ lat, lng });
+
+                if (mapInstanceRef.current && markerInstanceRef.current) {
+                    mapInstanceRef.current.setView([lat, lng], 16);
+                    markerInstanceRef.current.setLatLng([lat, lng]);
+                }
+                reverseGeocode(lat, lng);
+                setIsLocating(false);
+            },
+            (err) => {
+                console.warn(err);
+                setIsLocating(false);
+                alert(language === 'ar' ? 'تعذر تحديد موقعك الحالي. يرجى التأكد من تفعيل إذن الموقع في المتصفح' : 'Could not get your current location. Please allow location permissions.');
+            },
+            { enableHighAccuracy: true, timeout: 8000 }
+        );
+    };
+
+    // Initialize Leaflet Map
     useEffect(() => {
         if (!isOpen) return;
 
-        const loadScript = () => {
-            if (window.google && window.google.maps) {
-                initMap();
-                return;
+        const timer = setTimeout(() => {
+            if (!mapContainerRef.current) return;
+
+            if (mapInstanceRef.current) {
+                mapInstanceRef.current.remove();
+                mapInstanceRef.current = null;
             }
 
-            if (!document.getElementById('google-maps-script')) {
-                const script = document.createElement('script');
-                // Added region=EG to bias the map application towards Egypt
-                script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&language=${language === 'ar' ? 'ar' : 'en'}&region=EG`;
-                script.id = 'google-maps-script';
-                script.async = true;
-                script.defer = true;
-                script.onload = () => initMap();
-                document.head.appendChild(script);
-            } else {
-                // If script exists but maybe not fully loaded, wait a bit
-                const checkGoogle = setInterval(() => {
-                    if (window.google && window.google.maps) {
-                        clearInterval(checkGoogle);
-                        initMap();
-                    }
-                }, 100);
-            }
-        };
+            const map = L.map(mapContainerRef.current, {
+                center: [currentCoords.lat, currentCoords.lng],
+                zoom: 15,
+                zoomControl: false,
+            });
 
-        loadScript();
+            // Fast, high-resolution tile layer (100% free)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors',
+                maxZoom: 19,
+            }).addTo(map);
+
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            const marker = L.marker([currentCoords.lat, currentCoords.lng], {
+                icon: customMarkerIcon,
+                draggable: true,
+            }).addTo(map);
+
+            marker.on('dragend', () => {
+                const pos = marker.getLatLng();
+                setCurrentCoords({ lat: pos.lat, lng: pos.lng });
+                reverseGeocode(pos.lat, pos.lng);
+            });
+
+            map.on('click', (e: L.LeafletMouseEvent) => {
+                marker.setLatLng(e.latlng);
+                setCurrentCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
+                reverseGeocode(e.latlng.lat, e.latlng.lng);
+            });
+
+            mapInstanceRef.current = map;
+            markerInstanceRef.current = marker;
+
+            setTimeout(() => {
+                map.invalidateSize();
+            }, 200);
+
+            if (!addressText && currentCoords.lat) {
+                reverseGeocode(currentCoords.lat, currentCoords.lng);
+            }
+        }, 100);
 
         return () => {
-            // Cleanup not strictly necessary for Google Maps single instance, 
-            // but good to clear refs if unmounting
+            clearTimeout(timer);
+            if (mapInstanceRef.current) {
+                mapInstanceRef.current.remove();
+                mapInstanceRef.current = null;
+            }
         };
-    }, [isOpen, language]);
-
-    // 2. Initialize Map
-    const initMap = () => {
-        if (!mapContainerRef.current || !window.google) return;
-
-        // Default: Cairo
-        const defaultLocation = { lat: 30.0444, lng: 31.2357 };
-        
-        // Determine start location
-        const hasRealLocation = initialLocation.lat && initialLocation.lng && (initialLocation.lat !== 0);
-        const startPos = hasRealLocation ? { lat: initialLocation.lat, lng: initialLocation.lng } : defaultLocation;
-
-        // Create Map
-        if (!mapRef.current) {
-            mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
-                center: startPos,
-                zoom: 15,
-                disableDefaultUI: true, // We build our own UI
-                mapTypeId: mapType,
-                styles: [
-                     // Dark theme for map (Optional, matches app theme)
-                    { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-                    { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-                    { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-                    { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
-                    { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
-                    { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#263c3f" }] },
-                    { featureType: "poi.park", elementType: "labels.text.fill", stylers: [{ color: "#6b9a76" }] },
-                    { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
-                    { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
-                    { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
-                    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#746855" }] },
-                    { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#1f2835" }] },
-                    { featureType: "road.highway", elementType: "labels.text.fill", stylers: [{ color: "#f3d19c" }] },
-                    { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
-                    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
-                    { featureType: "water", elementType: "labels.text.stroke", stylers: [{ color: "#17263c" }] }
-                ]
-            });
-        } else {
-            // If map exists (re-opening modal), just reset center
-            mapRef.current.setCenter(startPos);
-        }
-
-        // Create Geocoder
-        geocoderRef.current = new window.google.maps.Geocoder();
-
-        // Create Marker
-        if (!markerRef.current) {
-            markerRef.current = new window.google.maps.Marker({
-                position: startPos,
-                map: mapRef.current,
-                draggable: true,
-                animation: window.google.maps.Animation.DROP,
-            });
-
-            // Listen for drag end
-            markerRef.current.addListener('dragend', () => {
-                const position = markerRef.current.getPosition();
-                const lat = position.lat();
-                const lng = position.lng();
-                handleLocationUpdate(lat, lng);
-            });
-            
-             // Click map to move marker
-            mapRef.current.addListener('click', (e: any) => {
-                const lat = e.latLng.lat();
-                const lng = e.latLng.lng();
-                markerRef.current.setPosition({ lat, lng });
-                handleLocationUpdate(lat, lng);
-            });
-        } else {
-             markerRef.current.setPosition(startPos);
-        }
-
-        // Initialize Autocomplete
-        if (searchInputRef.current && !autocompleteRef.current) {
-            autocompleteRef.current = new window.google.maps.places.Autocomplete(searchInputRef.current, {
-                componentRestrictions: { country: "eg" }, // Restrict to Egypt
-                fields: ["formatted_address", "geometry", "name"],
-            });
-            
-            // Bind autocomplete to map
-            autocompleteRef.current.bindTo("bounds", mapRef.current);
-
-            autocompleteRef.current.addListener("place_changed", () => {
-                const place = autocompleteRef.current.getPlace();
-
-                if (!place.geometry || !place.geometry.location) {
-                    alert(t('map_picker.no_results'));
-                    return;
-                }
-
-                // If the place has a geometry, then present it on a map.
-                if (place.geometry.viewport) {
-                    mapRef.current.fitBounds(place.geometry.viewport);
-                } else {
-                    mapRef.current.setCenter(place.geometry.location);
-                    mapRef.current.setZoom(17);
-                }
-
-                markerRef.current.setPosition(place.geometry.location);
-                
-                const lat = place.geometry.location.lat();
-                const lng = place.geometry.location.lng();
-                const address = place.formatted_address || place.name;
-
-                setSelectedLocation({ lat, lng, addressText: address });
-            });
-        }
-
-        // If it's a new order (no address), trigger auto-locate
-        if (!hasRealLocation && !hasAutoLocated) {
-            handleCurrentLocation();
-        }
-    };
-
-    // 3. Handle Location Update (Reverse Geocoding)
-    const handleLocationUpdate = (lat: number, lng: number) => {
-        // Optimistic update
-        setSelectedLocation(prev => ({ ...prev, lat, lng }));
-
-        if (geocoderRef.current) {
-            geocoderRef.current.geocode({ location: { lat, lng } }, (results: any, status: any) => {
-                if (status === "OK" && results[0]) {
-                    setSelectedLocation(prev => ({
-                        ...prev,
-                        lat,
-                        lng,
-                        addressText: results[0].formatted_address
-                    }));
-                     // Update search box text without triggering search
-                    if(searchInputRef.current) {
-                        searchInputRef.current.value = results[0].formatted_address;
-                    }
-                } else {
-                    setSelectedLocation(prev => ({
-                        ...prev,
-                        lat,
-                        lng,
-                        addressText: `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-                    }));
-                }
-            });
-        }
-    };
-
-    // 4. Handle Current Location (GPS)
-    const handleCurrentLocation = () => {
-        if (navigator.geolocation) {
-            setIsLoadingLocation(true);
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const pos = {
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude,
-                    };
-
-                    if(mapRef.current && markerRef.current) {
-                        mapRef.current.setCenter(pos);
-                        mapRef.current.setZoom(17);
-                        markerRef.current.setPosition(pos);
-                        handleLocationUpdate(pos.lat, pos.lng);
-                    }
-                    setIsLoadingLocation(false);
-                    setHasAutoLocated(true);
-                },
-                () => {
-                    // alert(t('map_picker.geolocation_error'));
-                    setIsLoadingLocation(false);
-                }
-            );
-        }
-    };
-
-    // 5. Toggle Map Type
-    useEffect(() => {
-        if (mapRef.current) {
-            mapRef.current.setMapTypeId(mapType);
-        }
-    }, [mapType]);
+    }, [isOpen]);
 
     const handleConfirm = () => {
-        onLocationSelect(selectedLocation);
+        onLocationSelect({
+            lat: currentCoords.lat,
+            lng: currentCoords.lng,
+            addressText: addressText.trim() || `${currentCoords.lat.toFixed(5)}, ${currentCoords.lng.toFixed(5)}`
+        });
         onClose();
+    };
+
+    const handleOpenInGoogleMaps = () => {
+        openGoogleMapsNavigation(currentCoords.lat, currentCoords.lng);
     };
 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center pointer-events-none">
-             {/* Backdrop */}
-             <div 
-                className="absolute inset-0 bg-black/60 pointer-events-auto backdrop-blur-sm"
-                onClick={onClose}
-            ></div>
-
-            {/* Modal Content */}
-            <div className="relative w-full h-[90vh] sm:h-[80vh] sm:max-w-md md:max-w-xl lg:max-w-2xl bg-[#1C2541] sm:rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto transition-transform duration-300 transform translate-y-0">
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[250] p-2 sm:p-4 md:p-6" dir={language === 'ar' ? 'rtl' : 'ltr'}>
+            <div className="bg-[#1C2541] rounded-2xl shadow-2xl w-full max-w-4xl h-[92vh] flex flex-col border border-gray-700 overflow-hidden relative animate-fade-in">
                 
-                {/* Floating Search Bar */}
-                <div className="absolute top-4 left-4 right-4 z-[500]">
-                     <div className="relative shadow-lg group">
-                        <input
-                            ref={searchInputRef}
-                            type="text"
-                            placeholder={t('map_picker.search_placeholder')}
-                            className="w-full h-12 pl-10 pr-4 rounded-full bg-[#0B132B] text-white border border-gray-600 focus:ring-2 focus:ring-[#F7C873] focus:border-transparent outline-none shadow-md"
-                        />
-                        <div className="absolute left-3 top-3.5 text-gray-400">
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                {/* Header */}
+                <div className="p-3 sm:p-4 bg-[#0B132B] flex items-center justify-between border-b border-gray-700 gap-2">
+                    <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-lg bg-[#F7C873]/20 text-[#F7C873]">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                             </svg>
                         </div>
+                        <div>
+                            <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                                {language === 'ar' ? 'تحديد الموقع على الخريطة' : 'Select Location on Map'}
+                                <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                    {language === 'ar' ? 'مجاني 100%' : '100% Free'}
+                                </span>
+                            </h2>
+                            <p className="text-xs text-gray-400">
+                                {language === 'ar' ? 'اسحب العلامة الذهبية أو اضغط على أي مكان لتحديده بدقة' : 'Drag the gold pin or click anywhere to select'}
+                            </p>
+                        </div>
                     </div>
-                </div>
 
-                {/* Map Layer Controls */}
-                <div className="absolute top-20 left-4 z-[400] flex flex-col gap-2">
                     <button 
-                        onClick={() => setMapType('roadmap')}
-                        className={`w-10 h-10 rounded-full shadow-lg flex items-center justify-center border transition-all ${mapType === 'roadmap' ? 'bg-[#F7C873] border-[#F7C873] text-[#0B132B]' : 'bg-[#0B132B] border-gray-600 text-white'}`}
-                        title={t('map_picker.roadmap')}
+                        onClick={onClose}
+                        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-[#141D33] transition-colors"
+                        title={t('common.cancel')}
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
-                    <button 
-                        onClick={() => setMapType('satellite')}
-                        className={`w-10 h-10 rounded-full shadow-lg flex items-center justify-center border transition-all ${mapType === 'satellite' ? 'bg-[#F7C873] border-[#F7C873] text-[#0B132B]' : 'bg-[#0B132B] border-gray-600 text-white'}`}
-                        title={t('map_picker.satellite')}
-                    >
-                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                    </button>
-                    
-                     {/* Close Button Mobile Position */}
-                    <div className="sm:hidden absolute top-[-70px] right-[-10px] z-[600]">
-                         <button 
-                            onClick={onClose}
-                            className="h-10 w-10 rounded-full bg-[#0B132B] text-white flex items-center justify-center shadow-lg border border-gray-600 hover:bg-gray-800"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
                 </div>
 
-
-                {/* Map Container */}
-                <div className="flex-grow relative bg-gray-900 w-full h-full">
-                    <div ref={mapContainerRef} className="w-full h-full" />
-                    
-                    {/* Controls Overlay */}
-                    <div className="absolute bottom-48 sm:bottom-40 right-4 z-[400]">
-                        <button
-                            onClick={handleCurrentLocation}
-                            className="w-12 h-12 rounded-full bg-[#F7C873] text-[#0B132B] shadow-lg flex items-center justify-center hover:bg-yellow-400"
-                            title={t('map_picker.current_location')}
-                        >
-                            {isLoadingLocation ? (
-                                <div className="animate-spin h-6 w-6 border-2 border-[#0B132B] border-t-transparent rounded-full"></div>
-                            ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                {/* Search Bar & GPS Locate */}
+                <div className="p-3 bg-[#141d33] border-b border-gray-700/80 flex flex-wrap gap-2 items-center justify-between z-10 relative">
+                    <form onSubmit={handleSearch} className="flex-grow flex gap-2 max-w-lg relative">
+                        <div className="relative flex-grow">
+                            <input 
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder={language === 'ar' ? 'ابحث عن منطقة، شارع، قاعة، فندق، معلم...' : 'Search area, street, venue, hotel, landmark...'}
+                                className="w-full bg-[#0B132B] border border-gray-600 rounded-lg py-2 px-3 ps-9 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#F7C873]"
+                            />
+                            <div className="absolute inset-y-0 start-3 flex items-center pointer-events-none text-gray-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                                 </svg>
+                            </div>
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={isSearching}
+                            className="bg-[#2A3450] hover:bg-[#344265] text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1 shrink-0"
+                        >
+                            {isSearching ? (
+                                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                            ) : (
+                                <span>{language === 'ar' ? 'بحث' : 'Search'}</span>
                             )}
                         </button>
-                    </div>
-                </div>
 
-                {/* Bottom Sheet Panel */}
-                <div className="bg-[#1C2541] p-4 sm:p-6 rounded-t-2xl sm:rounded-none shadow-[0_-5px_15px_rgba(0,0,0,0.3)] z-20 border-t border-gray-700">
-                    <div className="flex flex-col gap-4">
-                        <div className="flex items-start gap-3">
-                            <div className="mt-1 text-[#F7C873]">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                                </svg>
+                        {/* Search Results Dropdown */}
+                        {searchResults.length > 0 && (
+                            <div className="absolute top-full mt-1 start-0 end-0 bg-[#0B132B] border border-gray-600 rounded-lg shadow-2xl z-30 max-h-56 overflow-y-auto">
+                                {searchResults.map((res, i) => (
+                                    <div 
+                                        key={i}
+                                        onClick={() => handleSelectSearchResult(res)}
+                                        className="p-2.5 text-xs text-gray-200 hover:bg-[#1C2541] hover:text-[#F7C873] cursor-pointer border-b border-gray-800 last:border-0 transition-colors"
+                                    >
+                                        📍 {res.display_name}
+                                    </div>
+                                ))}
                             </div>
-                            <div>
-                                <p className="text-xs text-gray-400 uppercase tracking-wider font-bold mb-1">{t('map_picker.selected')}</p>
-                                <p className="text-white font-medium text-sm sm:text-base leading-snug">
-                                    {selectedLocation.addressText || t('map_picker.marker_title')}
-                                </p>
-                            </div>
-                        </div>
-                        
+                        )}
+                    </form>
+
+                    <div className="flex items-center gap-2">
+                        {/* My Location GPS Button */}
                         <button
-                            onClick={handleConfirm}
-                            className="w-full bg-[#F7C873] text-[#0B132B] font-bold py-3.5 px-6 rounded-lg hover:bg-yellow-400 transition-colors shadow-md text-lg active:scale-95 transform duration-150"
+                            type="button"
+                            onClick={handleGetMyLocation}
+                            disabled={isLocating}
+                            className="bg-[#2A3450] hover:bg-[#344265] text-[#F7C873] p-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+                            title={language === 'ar' ? 'تحديد موقعي الحالي' : 'Get My Location'}
                         >
-                            {t('map_picker.confirm')}
+                            <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isLocating ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="hidden sm:inline text-xs">{language === 'ar' ? 'موقعي الحالي' : 'My Location'}</span>
                         </button>
                     </div>
                 </div>
+
+                {/* Map View Area */}
+                <div className="flex-grow w-full h-full relative z-0">
+                    <div ref={mapContainerRef} className="w-full h-full min-h-[350px]"></div>
+
+                    {/* Coordinates Overlay Badge */}
+                    <div className="absolute top-3 end-3 z-[400] bg-[#0B132B]/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-gray-700 text-[11px] font-mono text-gray-300 shadow-md pointer-events-none">
+                        📍 {currentCoords.lat.toFixed(5)}, {currentCoords.lng.toFixed(5)}
+                    </div>
+                </div>
+
+                {/* Bottom Bar: Address display & Confirmation */}
+                <div className="p-3 sm:p-4 bg-[#0B132B] border-t border-gray-700 flex flex-col sm:flex-row gap-3 items-center justify-between">
+                    <div className="flex-grow w-full sm:w-auto">
+                        <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
+                            <span>{language === 'ar' ? 'العنوان المختار:' : 'Selected Address:'}</span>
+                            {isLoadingAddress && (
+                                <span className="text-[#F7C873] animate-pulse">
+                                    {language === 'ar' ? 'جاري جلب اسم المكان...' : 'Fetching address name...'}
+                                </span>
+                            )}
+                        </div>
+                        <input 
+                            type="text"
+                            value={addressText}
+                            onChange={(e) => setAddressText(e.target.value)}
+                            placeholder={language === 'ar' ? 'اكتب اسم المكان أو القاعة أو الوصف...' : 'Enter location title or description here...'}
+                            className="w-full bg-[#1C2541] border border-gray-600 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-[#F7C873]"
+                        />
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                        {/* Open in Google Maps for Navigation */}
+                        <button
+                            type="button"
+                            onClick={handleOpenInGoogleMaps}
+                            className="px-3 py-2 rounded-lg bg-[#2A3450] hover:bg-[#344265] text-blue-400 text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0"
+                            title={language === 'ar' ? 'فتح الموقع في تطبيق Google Maps للملاحة' : 'Open in Google Maps for navigation'}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                            <span>{language === 'ar' ? 'ملاحة في Google Maps' : 'Google Maps'}</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-semibold transition-colors"
+                        >
+                            {t('common.cancel')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleConfirm}
+                            className="px-5 py-2 rounded-lg bg-[#F7C873] hover:bg-yellow-400 text-[#0B132B] text-sm font-bold shadow-lg transition-colors flex items-center justify-center gap-1.5"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                            </svg>
+                            <span>{language === 'ar' ? 'تأكيد الموقع' : 'Confirm Location'}</span>
+                        </button>
+                    </div>
+                </div>
+
             </div>
         </div>
     );
