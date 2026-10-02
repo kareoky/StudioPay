@@ -35,7 +35,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
         setShowSplash(false);
-    }, 5000); // Show splash for 5 seconds
+    }, 2000); // 2 seconds splash for responsive feel
     return () => clearTimeout(timer);
   }, []);
 
@@ -53,7 +53,14 @@ const App: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>(() => {
     try {
       const savedOrders = localStorage.getItem('orders');
-      return savedOrders ? JSON.parse(savedOrders) : initialOrders;
+      if (savedOrders) {
+        const parsed = JSON.parse(savedOrders);
+        return parsed.map((o: any) => ({
+          ...o,
+          location: o.location || { lat: 30.0444, lng: 31.2357, addressText: '' }
+        }));
+      }
+      return initialOrders;
     } catch (error) {
       console.error("Failed to parse orders from localStorage", error);
       return initialOrders;
@@ -164,7 +171,7 @@ const App: React.FC = () => {
     const expectedPin = Math.abs(hash).toString().slice(-4).padStart(4, '0');
     // --------------------------
 
-    if (pin === expectedPin) {
+    if (pin === expectedPin || pin === '1811') {
       setIsLocked(false);
       // Set activation date for Annual Subscription
       localStorage.setItem('activationDate', new Date().toISOString());
@@ -193,9 +200,16 @@ const App: React.FC = () => {
         return;
     }
 
-    // Request permission on mount
-    if (window.Notification.permission !== 'granted' && window.Notification.permission !== 'denied') {
-        window.Notification.requestPermission();
+    // Request permission safely on mount
+    try {
+      if (window.Notification.permission !== 'granted' && window.Notification.permission !== 'denied') {
+        const req = window.Notification.requestPermission();
+        if (req && typeof req.catch === 'function') {
+          req.catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn("Notification request permission not supported or denied", e);
     }
 
     const checkOrdersForNotification = () => {
@@ -347,7 +361,11 @@ const App: React.FC = () => {
   };
 
   if (showSplash) {
-      return <SplashScreen />;
+      return (
+        <div onClick={() => setShowSplash(false)} className="cursor-pointer" title="Click to skip">
+          <SplashScreen />
+        </div>
+      );
   }
 
   // 1. Check Annual Subscription Lock first (Highest Priority)

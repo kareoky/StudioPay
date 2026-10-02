@@ -89,7 +89,7 @@ DTSTART:${formatICSDate(startDate)}
 DTEND:${formatICSDate(endDate)}
 SUMMARY:${order.title} - StudioPay
 DESCRIPTION:${description}
-LOCATION:${order.location.addressText || ''}
+LOCATION:${order.location?.addressText || ''}
 END:VEVENT
 END:VCALENDAR`;
 
@@ -145,11 +145,11 @@ END:VCALENDAR`;
                                     </span>
                                 </td>
                                 <td className="p-4 text-center">
-                                    {order.location.lat !== 0 && (
+                                    {order.location && order.location.lat !== 0 && (
                                         <button 
                                             onClick={(e) => handleNavigate(e, order.location.lat, order.location.lng)}
                                             className="text-[#F7C873] hover:text-white transition-colors"
-                                            title={order.location.addressText}
+                                            title={order.location.addressText || ''}
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 inline-block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
