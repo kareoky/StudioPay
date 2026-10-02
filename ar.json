@@ -63,7 +63,7 @@
   "add_order.form.datetime": "التاريخ والوقت",
   "add_order.form.duration": "المدة (بالساعات)",
   "add_order.form.location": "الموقع",
-  "add_order.form.pick_map": "تحديد من الخريطة",
+  "add_order.form.pick_map": "تحديد من خرائط Google Maps",
   "add_order.form.status": "الحالة",
   "add_order.form.notes": "ملاحظات",
   "common.cancel": "إلغاء",

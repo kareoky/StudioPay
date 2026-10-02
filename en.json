@@ -63,7 +63,7 @@
   "add_order.form.datetime": "Date & Time",
   "add_order.form.duration": "Duration (hours)",
   "add_order.form.location": "Location",
-  "add_order.form.pick_map": "Pick on Map",
+  "add_order.form.pick_map": "Pick on Google Maps",
   "add_order.form.status": "Status",
   "add_order.form.notes": "Notes",
   "common.cancel": "Cancel",

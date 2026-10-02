@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Order, Client } from '../types';
 import { useLanguage } from '../useLanguage';
 import MapPickerModal from './MapPickerModal';
-import { extractCoordsFromGoogleMapsUrl, openGoogleMapsNavigation, getGoogleMapsSearchUrl } from '../utils/maps';
+import { openGoogleMapsNavigation } from '../utils/maps';
 
 interface AddEditOrderProps {
     order: Order | null;
@@ -41,7 +41,6 @@ const AddEditOrder: React.FC<AddEditOrderProps> = ({ order, clients, onSave, onC
     const { t, language } = useLanguage();
     const [formData, setFormData] = useState<OrderFormState | null>(null);
     const [isMapOpen, setIsMapOpen] = useState(false);
-    const [isParsingUrl, setIsParsingUrl] = useState(false);
 
     useEffect(() => {
         if (order) {
@@ -84,28 +83,6 @@ const AddEditOrder: React.FC<AddEditOrderProps> = ({ order, clients, onSave, onC
 
     const handleLocationSelect = (location: Order['location']) => {
         setFormData(prev => prev ? { ...prev, location } : null);
-    };
-
-    const handleParseMapsUrl = async () => {
-        if (!formData?.mapsUrl) return;
-        
-        setIsParsingUrl(true);
-        const coords = await extractCoordsFromGoogleMapsUrl(formData.mapsUrl);
-        setIsParsingUrl(false);
-
-        if (coords) {
-            setFormData(prev => prev ? {
-                ...prev,
-                location: {
-                    ...prev.location,
-                    lat: coords.lat,
-                    lng: coords.lng,
-                    addressText: prev.location.addressText || "Location from Google Maps"
-                }
-            } : null);
-        } else {
-            alert("Could not extract coordinates from this link. Try sharing the full URL from Google Maps.");
-        }
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -184,89 +161,52 @@ const AddEditOrder: React.FC<AddEditOrderProps> = ({ order, clients, onSave, onC
                     
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-300 mb-1">{t('add_order.form.location')}</label>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                             {/* Manual Address Input */}
+                        <div className="flex flex-col gap-3">
+                             {/* Address Display & Manual Input */}
                              <div className="relative">
                                 <input 
                                     type="text"
                                     name="addressText"
                                     value={formData.location.addressText}
                                     onChange={(e) => setFormData(prev => prev ? {...prev, location: {...prev.location, addressText: e.target.value}} : null)}
-                                    className="w-full bg-[#2A3450] border border-gray-600 text-white rounded-md p-2 pl-10 focus:ring-[#F7C873] focus:border-[#F7C873]"
-                                    placeholder="Enter address manually or pick from map"
+                                    className="w-full bg-[#2A3450] border border-gray-600 text-white rounded-md p-2.5 ps-10 text-sm focus:ring-[#F7C873] focus:border-[#F7C873]"
+                                    placeholder={language === 'ar' ? 'العنوان أو حدد الموقع من خرائط Google Maps...' : 'Address or select from Google Maps...'}
                                 />
-                                <div className="absolute left-3 top-2.5 text-gray-400">
+                                <div className="absolute start-3 top-3 text-red-400">
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                                         <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
                                     </svg>
                                 </div>
                              </div>
 
-                             {/* Google Maps Link Input */}
-                             <div className="flex gap-2">
-                                <div className="relative flex-grow">
-                                    <input 
-                                        type="text"
-                                        name="mapsUrl"
-                                        value={formData.mapsUrl}
-                                        onChange={handleChange}
-                                        className="w-full bg-[#2A3450] border border-gray-600 text-white rounded-md p-2 pl-10 focus:ring-[#F7C873] focus:border-[#F7C873]"
-                                        placeholder="Paste Google Maps link here"
-                                    />
-                                    <div className="absolute left-3 top-2.5 text-gray-400">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
-                                        </svg>
-                                    </div>
-                                </div>
-                                <button 
-                                    type="button"
-                                    onClick={handleParseMapsUrl}
-                                    disabled={isParsingUrl || !formData.mapsUrl}
-                                    className="bg-[#F7C873] text-[#0B132B] px-4 rounded-md font-bold hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {isParsingUrl ? "..." : "Parse"}
-                                </button>
-                             </div>
-                            
-                            <div className="flex gap-2 md:col-span-2">
+                             {/* Google Maps Actions */}
+                             <div className="flex flex-wrap gap-2">
                                 <button 
                                     type="button"
                                     onClick={() => setIsMapOpen(true)}
-                                    className="flex-grow bg-[#0B132B] text-[#F7C873] border border-[#F7C873] py-2 px-4 rounded-md hover:bg-[#F7C873] hover:text-[#0B132B] transition-colors flex items-center justify-center gap-2 font-medium"
-                                    title={t('add_order.form.pick_map')}
+                                    className="flex-grow bg-[#0B132B] text-[#F7C873] border border-[#F7C873] py-2.5 px-4 rounded-md hover:bg-[#F7C873] hover:text-[#0B132B] transition-colors flex items-center justify-center gap-2 font-bold text-sm shadow-md"
+                                    title={language === 'ar' ? 'تحديد الموقع على خرائط Google Maps' : 'Pick on Google Maps'}
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
                                         <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
                                     </svg>
-                                    <span>{t('add_order.form.pick_map')}</span>
-                                </button>
-
-                                <button 
-                                    type="button"
-                                    onClick={() => window.open(getGoogleMapsSearchUrl(), '_blank')}
-                                    className="flex-grow bg-[#2A3450] text-[#F7C873] border border-gray-600 py-2 px-4 rounded-md hover:bg-gray-700 transition-colors flex items-center justify-center gap-2 font-medium"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
-                                        <path d="M5 5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4a1 1 0 10-2 0v4H5V7h4a1 1 0 000-2H5z" />
-                                    </svg>
-                                    <span>Open Google Maps</span>
+                                    <span>{language === 'ar' ? '📍 تحديد الموقع على خرائط Google Maps' : '📍 Pick on Google Maps'}</span>
                                 </button>
 
                                 {formData.location.lat !== 0 && (
                                      <button 
                                         type="button"
                                         onClick={handleOpenNavigation}
-                                        className="bg-blue-600 text-white border border-blue-600 py-2 px-4 rounded-md hover:bg-blue-500 transition-colors flex items-center justify-center gap-2 font-medium"
-                                        title="Navigate"
+                                        className="bg-[#2A3450] hover:bg-[#344265] text-blue-400 border border-blue-400/40 py-2.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2 text-sm font-semibold"
+                                        title={language === 'ar' ? 'ملاحة في تطبيق Google Maps' : 'Navigate with Google Maps'}
                                     >
-                                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transform -rotate-45" viewBox="0 0 24 24" fill="currentColor">
-                                            <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+                                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
                                         </svg>
+                                        <span>{language === 'ar' ? 'ملاحة Google Maps' : 'Google Navigation'}</span>
                                     </button>
                                 )}
-                            </div>
+                             </div>
                         </div>
                     </div>
                     
